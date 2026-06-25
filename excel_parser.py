@@ -108,6 +108,10 @@ class ExcelParser:
             # drop fully blank rows
             df.dropna(how="all", inplace=True)
 
+            if df.empty or len(df.columns) == 0:
+                self.tables[sheet] = df
+                continue
+
             # drop "Total" / summary rows that have no real numeric data
             # (these confuse downstream sums and SIP listings)
             first_col = df.columns[0]
@@ -123,4 +127,4 @@ class ExcelParser:
 
             self.tables[sheet] = df
 
-        return self.tables  
+        return self.tables   

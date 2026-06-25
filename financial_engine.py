@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 
 class FinancialEngine:
@@ -343,4 +344,306 @@ class FinancialEngine:
         else:
             tax_amount = 0.0
             
-        return round(tax_amount, 2) 
+        return round(tax_amount, 2)
+
+    def get_scheme_type(self, scheme_name):
+        """
+        Determines the asset category of a scheme based on its name.
+        """
+        sn = str(scheme_name).lower()
+        if any(k in sn for k in ["liquid", "low duration", "money manager", "gilt", "debt", "bond", "treasury", "short term", "savings fund"]):
+            return "Debt"
+        elif any(k in sn for k in ["balanced", "hybrid", "arbitrage", "equity savings", "asset allocator"]):
+            return "Hybrid"
+        else:
+            return "Equity"
+
+    def get_investment_amount(self, scheme_name):
+        """
+        Retrieves the cost of investment for a specific scheme from Scheme Wise sheet.
+        """
+        df = self.get_sheet("scheme")
+        if df is None or df.empty:
+            df = self.get_sheet("folio")
+        if df is None or df.empty:
+            return 0.0
+        scheme_col = self.find_col(df, "scheme", "name") or self.find_col(df, "scheme")
+        cost_col = self.find_col(df, "cost of investment") or self.find_col(df, "investment")
+        if not scheme_col or not cost_col:
+            return 0.0
+        mask = df[scheme_col].astype(str).str.lower() == str(scheme_name).lower()
+        rows = df[mask]
+        if rows.empty:
+            return 0.0
+        return float(self.numeric(rows, cost_col).sum())
+
+    def get_asset_allocation(self):
+        """
+        Retrieves asset allocation from the Category Wise sheet.
+        Maps categories into Equity, Debt, Hybrid, and Other.
+        Returns a dict of {category_name: current_value} and weights.
+        """
+        df = self.get_sheet("category")
+        if df is None or df.empty:
+            return {"Equity": 0.0, "Debt": 0.0, "Hybrid": 0.0, "Other": 0.0}
+            
+        cat_col = self.find_col(df, "category")
+        val_col = self.find_col(df, "current value")
+        
+        if not cat_col or not val_col:
+            return {"Equity": 0.0, "Debt": 0.0, "Hybrid": 0.0, "Other": 0.0}
+            
+        allocation = {"Equity": 0.0, "Debt": 0.0, "Hybrid": 0.0, "Other": 0.0}
+        
+        for _, row in df.iterrows():
+            cat = str(row[cat_col]).upper().strip()
+            val = float(pd.to_numeric(row[val_col], errors="coerce") or 0.0)
+            
+            if "EQUITY" in cat:
+                allocation["Equity"] += val
+            elif "DEBT" in cat or "LIQUID" in cat or "BOND" in cat:
+                allocation["Debt"] += val
+            elif "HYBRID" in cat or "BALANCE" in cat or "ARBITRAGE" in cat:
+                allocation["Hybrid"] += val
+            else:
+                allocation["Other"] += val
+                
+        # Handle small negative balances gracefully
+        for k in allocation:
+            if allocation[k] < 0:
+                allocation[k] = 0.0
+                
+        return allocation
+
+    def get_member_comparison(self):
+        """
+        Gathers comparison metrics for all family members.
+        Returns list of dicts.
+        """
+        members = self.holder_names()
+        if not members:
+            return []
+            
+        data = []
+        for member in members:
+            val = self.fund_value(member) or 0.0
+            inv = self.investment(member) or 0.0
+            ret_abs = self.returns(member) or 0.0
+            ret_pct = (ret_abs / inv * 100) if inv > 0 else 0.0
+            xirr_val = self.xirr(member) or 0.0
+            
+            data.append({
+                "Member": member,
+                "Portfolio Value": val,
+                "Investment": inv,
+                "Return %": ret_pct,
+                "XIRR %": xirr_val,
+                "Gain": ret_abs
+            })
+        return data
+
+    def get_fund_performance(self, top_n=5, bottom_n=5):
+        """
+        Identifies the top and bottom performing funds from Scheme Wise sheet.
+        Excludes closed / redeemed funds (where current value <= 5.0).
+        """
+        df = self.get_sheet("scheme")
+        if df is None or df.empty:
+            return pd.DataFrame(), pd.DataFrame()
+            
+        scheme_col = self.find_col(df, "scheme", "name") or self.find_col(df, "scheme")
+        val_col = self.find_col(df, "current value")
+        cost_col = self.find_col(df, "cost of investment") or self.find_col(df, "investment")
+        xirr_col = self.find_col(df, "xirr")
+        
+        if not scheme_col or not val_col or not cost_col:
+            return pd.DataFrame(), pd.DataFrame()
+            
+        df_clean = df.copy()
+        df_clean["Current Value"] = pd.to_numeric(df_clean[val_col], errors="coerce").fillna(0.0)
+        df_clean["Invested Amount"] = pd.to_numeric(df_clean[cost_col], errors="coerce").fillna(0.0)
+        df_clean["XIRR"] = pd.to_numeric(df_clean[xirr_col], errors="coerce").fillna(0.0) if xirr_col else 0.0
+        
+        # Filter for active funds
+        df_clean = df_clean[df_clean["Current Value"] > 5.0].copy()
+        
+        if df_clean.empty:
+            return pd.DataFrame(), pd.DataFrame()
+            
+        # Calculate Return %
+        df_clean["Return %"] = np.where(
+            df_clean["Invested Amount"] > 0,
+            (df_clean["Current Value"] - df_clean["Invested Amount"]) / df_clean["Invested Amount"] * 100,
+            0.0
+        )
+        
+        df_sorted = df_clean.sort_values(by="Return %", ascending=False).reset_index(drop=True)
+        
+        out_cols = [scheme_col, "Current Value", "Invested Amount", "Return %", "XIRR"]
+        df_sorted_out = df_sorted[out_cols].copy()
+        df_sorted_out.columns = ["Fund Name", "Current Value", "Invested Amount", "Return %", "XIRR"]
+        
+        top_funds = df_sorted_out.head(top_n).copy()
+        bottom_funds = df_sorted_out.tail(bottom_n).copy().sort_values(by="Return %", ascending=True)
+        
+        return top_funds, bottom_funds
+
+    def get_portfolio_growth_series(self):
+        """
+        Generates historical portfolio growth (Invested vs Current Value)
+        from transaction history.
+        """
+        df = self.get_sheet("transaction")
+        if df is None or df.empty:
+            return pd.DataFrame()
+            
+        df_tx = df.copy()
+        df_tx.columns = [c.strip() for c in df_tx.columns]
+        
+        scheme_col = "Sheme Name" if "Sheme Name" in df_tx.columns else "Scheme Name"
+        if scheme_col not in df_tx.columns:
+            scheme_col = self.find_col(df_tx, "scheme") or self.find_col(df_tx, "sheme")
+            
+        date_col = self.find_col(df_tx, "date")
+        tx_col = self.find_col(df_tx, "transaction")
+        amt_col = self.find_col(df_tx, "amount")
+        units_col = self.find_col(df_tx, "units")
+        nav_col = self.find_col(df_tx, "nav")
+        
+        if not all([scheme_col, date_col, tx_col, amt_col, units_col, nav_col]):
+            return pd.DataFrame()
+            
+        df_tx["ParsedDate"] = pd.to_datetime(df_tx[date_col], format="%d/%m/%Y", errors="coerce")
+        df_tx = df_tx.dropna(subset=["ParsedDate"])
+        df_tx = df_tx.sort_values("ParsedDate")
+        
+        df_tx["Amount"] = pd.to_numeric(df_tx[amt_col], errors="coerce").fillna(0.0)
+        df_tx["Units"] = pd.to_numeric(df_tx[units_col], errors="coerce").fillna(0.0)
+        df_tx["NavRate"] = pd.to_numeric(df_tx[nav_col], errors="coerce").fillna(0.0)
+        
+        df_tx["Month"] = df_tx["ParsedDate"].dt.to_period("M")
+        all_months = pd.period_range(df_tx["Month"].min(), df_tx["Month"].max(), freq="M")
+        
+        portfolio_history = []
+        
+        for m in all_months:
+            sub_df = df_tx[df_tx["Month"] <= m]
+            if sub_df.empty:
+                continue
+                
+            unique_schemes = sub_df[scheme_col].unique()
+            total_value = 0.0
+            total_invested = 0.0
+            
+            for scheme in unique_schemes:
+                scheme_txs = sub_df[sub_df[scheme_col] == scheme]
+                units = 0.0
+                invested = 0.0
+                
+                for _, row in scheme_txs.iterrows():
+                    tx_type = str(row[tx_col]).upper().strip()
+                    if tx_type in ["ADDITIONAL", "SWITCH IN", "FRESH", "SIP", "PURCHASE"]:
+                        units += row["Units"]
+                        invested += row["Amount"]
+                    elif tx_type in ["REDEMPTION", "SWITCH OUT", "SWP"]:
+                        units -= row["Units"]
+                        invested -= row["Amount"]
+                        
+                if units < 0.01:
+                    units = 0.0
+                    invested = 0.0
+                    
+                latest_nav = scheme_txs["NavRate"].iloc[-1]
+                total_value += units * latest_nav
+                total_invested += invested
+                
+            portfolio_history.append({
+                "Month": m.to_timestamp(),
+                "Invested Amount": max(0.0, total_invested),
+                "Current Value": max(0.0, total_value)
+            })
+            
+        history_df = pd.DataFrame(portfolio_history)
+        
+        # Append / Align the last data point with actual today's values
+        actual_val = self.fund_value() or 0.0
+        actual_inv = self.investment() or 0.0
+        
+        if not history_df.empty and actual_val > 0:
+            last_row_idx = history_df.index[-1]
+            history_df.loc[last_row_idx, "Current Value"] = actual_val
+            history_df.loc[last_row_idx, "Invested Amount"] = actual_inv
+            
+        return history_df
+
+    def simulate_goal_probability(self, target_amount, expected_return_pct, monthly_sip, years, include_current=True):
+        """
+        Runs a Monte Carlo simulation (1000 runs) to project portfolio growth
+        and estimate the probability of achieving the goal.
+        """
+        current_val = self.fund_value() or 0.0
+        start_val = current_val if include_current else 0.0
+        
+        alloc = self.get_asset_allocation()
+        total_alloc = sum(alloc.values())
+        
+        if total_alloc > 0:
+            w_eq = alloc["Equity"] / total_alloc
+            w_db = alloc["Debt"] / total_alloc
+            w_hb = alloc["Hybrid"] / total_alloc
+            w_ot = alloc["Other"] / total_alloc
+            vol = w_eq * 0.15 + w_db * 0.05 + w_hb * 0.10 + w_ot * 0.12
+        else:
+            vol = 0.12
+            
+        r_annual = expected_return_pct / 100.0
+        n_months = int(years * 12)
+        
+        if n_months <= 0:
+            return pd.DataFrame(), 0.0, 0.0, 0
+            
+        n_paths = 1000
+        r_monthly = r_annual / 12.0
+        vol_monthly = vol / np.sqrt(12)
+        
+        mean_monthly = r_monthly - 0.5 * (vol_monthly ** 2)
+        rand_returns = np.random.normal(mean_monthly, vol_monthly, size=(n_months, n_paths))
+        
+        paths = np.zeros((n_months + 1, n_paths))
+        paths[0, :] = start_val
+        
+        for t in range(1, n_months + 1):
+            paths[t, :] = (paths[t-1, :] + monthly_sip) * np.exp(rand_returns[t-1, :])
+            
+        p25 = np.percentile(paths, 25, axis=1)
+        p50 = np.percentile(paths, 50, axis=1)
+        p75 = np.percentile(paths, 75, axis=1)
+        
+        months_dates = [pd.Timestamp.now() + pd.DateOffset(months=t) for t in range(n_months + 1)]
+        projection_df = pd.DataFrame({
+            "Date": months_dates,
+            "Conservative (25th)": p25,
+            "Median (50th)": p50,
+            "Optimistic (75th)": p75
+        })
+        
+        final_values = paths[-1, :]
+        success_paths = np.sum(final_values >= target_amount)
+        probability = float(success_paths) / n_paths * 100.0
+        expected_fv = float(p50[-1])
+        
+        years_required = None
+        for t in range(n_months + 1):
+            if p50[t] >= target_amount:
+                years_required = round(t / 12.0, 1)
+                break
+                
+        if years_required is None:
+            det_val = start_val
+            for t in range(1, 1200):
+                det_val = (det_val + monthly_sip) * (1 + r_monthly)
+                if det_val >= target_amount:
+                    years_required = round(t / 12.0, 1)
+                    break
+                    
+        return projection_df, expected_fv, probability, years_required 

@@ -116,4 +116,4 @@ def detect_intent(question: str) -> str:
     if "folio" in q:
         return "folios"
 
-    return "search" 
+    return "search"  

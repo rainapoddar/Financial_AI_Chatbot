@@ -4,4 +4,5 @@ numpy
 faiss-cpu
 sentence-transformers
 ollama
-openpyxl  
+openpyxl
+plotly 

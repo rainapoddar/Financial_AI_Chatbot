@@ -1,28 +1,52 @@
 import re
 
-# ── known holders (add more aliases here as needed) ──────────────────────────
-HOLDER_ALIASES = {
-    "HARSHESH JAYANTIBHAI PATEL": [
-        "harshesh", "harsheshbhai", "mr. harshesh", "mr harshesh",
-        "husband", "my account",
-    ],
-    "SONALBEN HARSESH PATEL": [
-        "sonal", "sonalben", "mrs. sonal", "mrs sonal",
-        "wife", "sonal account",
-    ],
-}
 
+def detect_member(question: str, holder_names: list = None):
+    """
+    Dynamically detects which family member is being referred to in a question.
 
-def detect_member(question: str):
+    Args:
+        question:     The raw user question string.
+        holder_names: List of holder name strings extracted from the uploaded
+                      Excel (e.g. engine.holder_names()). If None or empty,
+                      returns None (family-wide scope).
+
+    Returns:
+        The full holder name string (as it appears in the Excel) if a member
+        is mentioned, or None for a family-wide question.
+
+    Strategy:
+        1. Check each word / token in the question against every holder name.
+           A match is found when ANY token from the question appears as a
+           contiguous sub-word of a holder name (case-insensitive).
+        2. Among all matches, return the one with the longest matching token
+           to prefer "Harshesh Patel" over "Patel" when both holders share
+           the surname.
     """
-    Returns the full holder name if a family member is mentioned,
-    or None for a family-wide question.
-    """
-    q = question.lower()
-    for full_name, aliases in HOLDER_ALIASES.items():
-        if any(alias in q for alias in aliases):
-            return full_name
-    return None
+    if not holder_names:
+        return None
+
+    q_lower = question.lower()
+
+    # Tokenise the question into meaningful words (≥3 chars, alpha only)
+    q_tokens = [t for t in re.findall(r"[a-z]+", q_lower) if len(t) >= 3]
+
+    best_match = None
+    best_len = 0
+
+    for full_name in holder_names:
+        name_lower = full_name.lower()
+        # Split holder name into individual word tokens
+        name_parts = name_lower.split()
+
+        for q_tok in q_tokens:
+            for part in name_parts:
+                # Match if the question token is fully contained in a name part
+                if q_tok in part and len(q_tok) > best_len:
+                    best_match = full_name
+                    best_len = len(q_tok)
+
+    return best_match
 
 
 def detect_intent(question: str) -> str:
@@ -116,4 +140,4 @@ def detect_intent(question: str) -> str:
     if "folio" in q:
         return "folios"
 
-    return "search"  
+    return "search"

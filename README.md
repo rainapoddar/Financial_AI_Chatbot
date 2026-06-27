@@ -10,15 +10,16 @@ This chatbot turns a complex Excel portfolio report into a simple chat interface
 
 ---
 
-## 👨‍👩‍👧 Family Member Awareness
+## 👥 Multi-Client & Member Awareness
 
-The chatbot understands **who** you are asking about:
+The chatbot is **fully generic** — it works with any client's Excel file:
 
-- Asking about **"Harshesh"**, **"husband"**, or **"my account"** → answers only for **HARSHESH JAYANTIBHAI PATEL**
-- Asking about **"Sonal"**, **"Sonalben"**, or **"wife"** → answers only for **SONALBEN HARSESH PATEL**
-- No name mentioned → returns **family-level totals**
+- Upload any portfolio `.xlsx` and the chatbot **automatically reads all holder names** from the Excel
+- Asking about a specific person by name (e.g. their first name) → filters answers to that member only
+- No name mentioned → returns **portfolio-level totals across all members**
+- Multiple members supported in a single Excel — one file can contain the whole family
 
-This means every answer is filtered to the right person automatically — no manual lookups needed.
+No code changes are needed to switch between different clients. Simply upload a new Excel file.
 
 ---
 
@@ -33,30 +34,24 @@ This means every answer is filtered to the right person automatically — no man
 - *"How many holders are in my family portfolio?"*
 
 ### Member-Specific Queries
-- *"What is Sonal's current value and returns?"*
-- *"What is Harshesh's XIRR?"*
-- *"Show Sonalben's portfolio summary"*
+- *"What is [Member Name]'s current value and returns?"*
+- *"What is [Member Name]'s XIRR?"*
+- *"Show [Member Name]'s portfolio summary"*
 
 ### SIP (Systematic Investment Plan)
 - *"What is my total SIP amount?"*
 - *"What are my SIP dates?"*
 - *"Show all my active SIPs"*
-- *"What is Harshesh's SIP amount?"*
-- *"What is Sonal's SIP amount?"*
+- *"What is [Member Name]'s SIP amount?"*
 
 ### Future Value Projections
 - *"What will my portfolio be worth after 10 years?"*
-- *"What will Harshesh's amount be after 5 years?"*
-- *"What will Sonal's portfolio grow to in 20 years?"*
+- *"What will [Member Name]'s amount be after 5 years?"*
+- *"What will [Member Name]'s portfolio grow to in 20 years?"*
 
   The chatbot uses your portfolio's own **XIRR** as the growth rate and projects:
   - Lumpsum (existing investment) future value
   - Combined future value including ongoing SIP contributions
-
-### Transactions & Folios
-- *"Show my transactions"*
-- *"Show Harshesh's transactions"*
-- *"Show my folio-wise data"*
 
 ### Dividend & SWP
 - *"Show my monthly dividend amount"*
@@ -137,7 +132,7 @@ Answer displayed in Streamlit with success / info / warning styling
 | Financial calculations | Custom FinancialEngine (Python) |
 | AI / Natural language | LLaMA 3 via Ollama (local, free, private) |
 | Intent detection | Custom rule-based classifier |
-| Member detection | Alias-based name resolver |
+| Member detection | Dynamic name resolver — reads holder names live from the uploaded Excel |
 
 ---
 
@@ -160,7 +155,8 @@ Then open your browser at `http://localhost:8501`, upload your Family Portfolio 
 
 ## 📌 Notes
 
-- The Excel file must be a **Family Portfolio Valuation Report** in the standard format (as exported by CAMS, KFintech, or your advisor's portfolio management software).
+- The Excel file can be any **Portfolio Valuation Report** in the standard format (as exported by CAMS, KFintech, or your advisor's portfolio management software). It supports multiple account holders in one file.
+- A single Excel can contain multiple members — the chatbot reads all holder names dynamically.
 - Bank details and capital gains / tax statements are **not part of this report type** — upload a separate CAS or Capital Gains Statement for those queries.
 - All data stays **on your machine** — nothing is sent to any external server (LLaMA 3 runs locally via Ollama).
 
